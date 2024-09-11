@@ -72,3 +72,17 @@ acumulan cada 24 horas. Por ejemplo si entrega a las 10:05pm su evaluación tend
 si entrega después de las 10:05 p.m. del siguiente día, su nota base será 90%, y así sucesivamente.
 
 
+
+Material de referencia:
+
+
+Documentación de Mozilla 
+https://developer.mozilla.org/en-US/docs/Web/HTTP
+
+RFC9910
+https://httpwg.org/specs/rfc9110.html#GET
+
+HTTP from scratch
+https://www.fromscratch.sh/http-server-part-1/ 
+
+
