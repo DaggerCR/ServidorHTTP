@@ -1,5 +1,5 @@
 # ServidorHTTP
-En este proyecto, los estudiantes deberán implementar un servidor HTTP v1.x funcional desde cero, utilizando uno de los lenguajes de programación propuestos: Rust, C, C++ o Go. El servidor debe soportar las
+En este proyecto, los estudiantes deberán implementar un servidor HTTP v1.x funcional desde cero, utilizando uno de los lenguajes de programación propuestos: Rust, C, C++ o Go. El servidor debe soportar las
 principales operaciones HTTP (GET, PUT, POST, DELETE, UPDATE) y deberá manejar múltiples solicitudes
 concurrentemente utilizando hilos o procesos. Además, se debe implementar un sistema básico de gestión
 de cookies para manejar la sesión del usuario. Aunque no se requiere implementar HTTPS, se espera que el
@@ -15,7 +15,7 @@ de manera eficiente.
 3. Mitigar bloqueos y colisiones de datos, implementando mecanismos adecuados de sincronización.
 4. Gestionar sesiones de usuarios utilizando cookies para mantener un estado básico entre solicitudes.
 5. Probar el servidor mediante herramientas como curl o Postman, asegurando su funcionalidad.
-6. Documentar el código de manera clara y proporcionar pruebas unitarias que validen el correcto funcionamiento de cada funcionalidad implementada
+6. Documentar el código de manera clara y proporcionar pruebas unitarias que validen el correcto funcionamiento de cada funcionalidad implementada
 
 ## Requisitos Técnicos
 1. Lenguajes permitidos: Rust, C, C++ o Go.
@@ -33,7 +33,7 @@ manera eficiente.
 sesión del usuario.
 5. No se requiere HTTPS: Para simplificar el desarrollo, el protocolo seguro HTTPS no es necesario para
 este proyecto.
-6. Compatibilidad con herramientas de prueba: El servidor debe ser probado utilizando curl o Postman para asegurar que las operaciones HTTP son correctas.
+6. Compatibilidad con herramientas de prueba: El servidor debe ser probado utilizando curl o Postman para asegurar que las operaciones HTTP son correctas.
 7. El servidor solo debe parsear archivos JSON y Texto plano, no es necesario que el servidor HTTP reciba
 archivos binarios.
 
@@ -43,14 +43,14 @@ El proyecto debe ser acompañado por una documentación detallada que incluya:
 conexiones concurrentes y cómo se implementan las distintas operaciones HTTP.
 • Descripción de la implementación de la concurrencia: Explicación de cómo se manejan los hilos o
 procesos y las técnicas utilizadas para mitigar bloqueos y evitar condiciones de carrera.
-• Manejo de cookies: Detalle de cómo el servidor gestiona las cookies, incluyendo cómo se crean, almacenan y eliminan las mismas.
+• Manejo de cookies: Detalle de cómo el servidor gestiona las cookies, incluyendo cómo se crean, almacenan y eliminan las mismas.
 • Instrucciones para ejecutar y probar el servidor, indicando qué herramientas se utilizaron (curl o
 Postman) y los comandos necesarios para probar cada funcionalidad.
 • Estructura de directorios y archivos: Explicar la disposición del proyecto, los archivos importantes y
 sus roles.
 
 ## Pruebas Unitarias
-Es indispensable que el código esté acompañado de pruebas unitarias para validar el correcto funcionamiento de las funcionalidades clave. Las pruebas unitarias deben cubrir y no solo:
+Es indispensable que el código esté acompañado de pruebas unitarias para validar el correcto funcionamiento de las funcionalidades clave. Las pruebas unitarias deben cubrir y no solo:
 • Operaciones HTTP (GET, POST, PUT, DELETE, UPDATE).
 • Gestión de sesiones y cookies.
 • Manejo concurrente de múltiples solicitudes.
