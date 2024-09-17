@@ -66,7 +66,7 @@ servidor.
 para probar las diferentes operaciones del servidor.
 5. Manual de usuario: Guía para la instalación, ejecución y uso del servidor.
 Debe presentar un archivo comprimido en el TecDigital antes de las 10:00pm del día de entrega. La actividad
-se puede realizar en parejas.
+se realiza en los grupos de trabajo.
 Si la entrega se realiza después de la hora de entrega, se le penalizará con 5 puntos porcentuales que se
 acumulan cada 24 horas. Por ejemplo si entrega a las 10:05pm su evaluación tendrá una nota base de 95%,
 si entrega después de las 10:05 p.m. del siguiente día, su nota base será 90%, y así sucesivamente.
