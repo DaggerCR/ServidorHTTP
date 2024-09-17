@@ -113,21 +113,21 @@
         //
         //
         char request[4000] = {0};
-            // Leer la solicitud del cliente
-            read(new_socket, request, sizeof(request));//ERROR
-            
-            printf("\r\nRequest recibida: \r\n%s \r\n\r\n", request);
-		
-            // Determinar si es una solicitud GET o POST
-            if (strncmp(request, "GET", 3) == 0) {
-                handle_get(new_socket, request);
-                printf("\nGET request manejada\n");
-            } else if (strncmp(request, "POST", 4) == 0) {
-                handle_post(new_socket, request);
-                printf("\nPOST request manejada\n");
-            }
-            printf("\nCerrando la conexion del cliente\n");
-            close(new_socket);
+        // Leer la solicitud del cliente
+        read(new_socket, request, sizeof(request));//ERROR
+        
+        printf("\r\nRequest recibida: \r\n%s \r\n\r\n", request);
+    
+        // Determinar si es una solicitud GET o POST
+        if (strncmp(request, "GET", 3) == 0) {
+            handle_get(new_socket, request);
+            printf("\nGET request manejada\n");
+        } else if (strncmp(request, "POST", 4) == 0) {
+            handle_post(new_socket, request);
+            printf("\nPOST request manejada\n");
+        }
+        printf("\nCerrando la conexion del cliente\n");
+        close(new_socket);
     }
 
 
@@ -154,6 +154,9 @@
         char response_buffer[2048];
         const char *file_path =  getFilePath(request);
         file = fopen(file_path, "r");
+        
+        
+        
         if (file == NULL) {
             format_response(response_buffer, "404  Not Found", "application/json", 8, "Not Found");
             // Enviar la respuesta al cliente
@@ -177,35 +180,42 @@
         FILE *file;
         char request[4000] = {0};
         char response_buffer[2048];
-        
-        // Leer el cuerpo del POST 
-        read(new_socket, request, sizeof(request));
-	
+	    char file_response[1024] = {0};
         // Encontrar el inicio del JSON en la solicitud POST (después del doble salto de línea)
         file_start = strstr(pRequest, "\r\n\r\n");
         file_start += 4;  // Saltar el doble salto de línea
-	printf("Mensaje por escribir:\r\n%s\r\n", file_start);
-       if (strlen(file_start) > 0)  {
+	    printf("Mensaje por escribir:\r\n%s\r\n", file_start);
+        if (strlen(file_start) > 0)  {
 	    // Agarrar el path del archivo
 	    const char *file_path =  getFilePath(pRequest);
         	
-            // Abrir el archivo response.JSON para escribir el nuevo contenido
-            file = fopen(file_path, "w"); //w para sobre escribir, a para agregar al final
-            if (file == NULL) {
-                perror("No se pudo abrir el archivo JSON para escribir");
-                exit(EXIT_FAILURE);
-            }
+        // Abrir el archivo response.JSON para escribir el nuevo contenido
+        file = fopen(file_path, "w"); //w para sobre escribir, a para agregar al final
+        if (file == NULL) {
+            perror("No se pudo abrir el archivo JSON para escribir");
+            exit(EXIT_FAILURE);
+        }
+    
+        // Escribir el contenido del JSON en el archivo
+        fwrite(file_start, sizeof(char), strlen(file_start), file);
+		fclose(file);
+	    
+	    //GET CONTENT TYPE
+	    pRequest = strtok(NULL, "\r\n");
+	    pRequest = strtok(NULL, "\r\n");
+	    pRequest = strstr(pRequest, ": ");
+	    pRequest = pRequest+2;
+	    
+        // Responder al cliente (POSTMAN)con un mensaje de éxito
+        file = fopen(file_path, "r");
+        fread(file_response, sizeof(char), sizeof(file_response), file);
+        fclose(file);
 
-            // Escribir el contenido del JSON en el archivo
-            fwrite(file_start, sizeof(char), strlen(file_start), file);
-            fclose(file);
+        // Formar la respuesta HTTP
+        format_response(response_buffer, "201 Created", pRequest, strlen(file_response), file_response);
 
-            // Responder al cliente con un mensaje de éxito
-            //const char *response = "HTTP/1.1 200 OK\nContent-Type: text/plain\nContent-Length: 19\n\nJSON guardado con éxito";
-            format_response(response_buffer, "2001 OK", "text/plain", strlen(file_start), file_start);
-            send(new_socket, response_buffer, strlen(response_buffer), 0);
-            
-            
+        // Enviar la respuesta al cliente
+        send(new_socket, response_buffer, strlen(response_buffer), 0);
         }
         else
             printf("\nJSON msj NULO");
