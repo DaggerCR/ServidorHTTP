@@ -1,4 +1,5 @@
-/* http://localhost:8082/
+/*
+    http://localhost:8082/
 
     gcc -o main main.cpp
     ./main
@@ -17,18 +18,17 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 
-#define PORT 8081
+#define PORT 8080
 
-
-void  handle_client(int new_socket); 
 void handle_get(int new_socket);
 void handle_post(int new_socket,char request[4000]);
 
-
 int main() 
 {
-    int server_fd;
-    struct sockaddr_in server_address; 
+    int server_fd, new_socket;
+    struct sockaddr_in server_address, client_address;
+    socklen_t client_address_len = sizeof(client_address);
+    char request[4000] = {0};
 
     // Crear el socket
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -36,14 +36,6 @@ int main()
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
-
-    // // Since the tester restarts your program quite often, setting SO_REUSEADDR
-    // // ensures that we don't run into 'Address already in use' errors
-     int reuse = 1;
-     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) < 0) {
-     	printf("SO_REUSEADDR failed: %s \n", strerror(errno));
-     	return 1;
-     }
 
     // Configurar la dirección y puerto
     server_address.sin_family = AF_INET;
@@ -67,10 +59,6 @@ int main()
     int salir =0;
     while (true) 
     {
-        int new_socket;
-        struct sockaddr_in sclient_address;
-        socklen_t client_address_len = sizeof(client_address);
-
         // Aceptar una conexión entrante
         new_socket = accept(server_fd, (struct sockaddr *)&client_address, &client_address_len);
         if (new_socket < 0) {
@@ -78,17 +66,6 @@ int main()
             exit(EXIT_FAILURE);
         }
 
-        handle_client(new_socket)    
-        
-    }
-    
-    close(server_fd);
-    return 0;
-}
-
-void handle_client(int new_socket) {
-
-    char request[4000] = {0};
         // Leer la solicitud del cliente
         read(new_socket, request, sizeof(request));
 
@@ -100,8 +77,13 @@ void handle_client(int new_socket) {
             handle_post(new_socket,request);
         }
         close(new_socket);
+        
+        
+    }
+    
+    close(server_fd);
+    return 0;
 }
-
 
 // Manejo de GET request
 void handle_get(int new_socket) {

@@ -1,0 +1,124 @@
+{
+    "user": {
+        "name": "Alice Johnson",  
+        "preferences": {
+            "notifications": {
+                "email": false,  
+                "push": true  
+            },
+            "theme": "light",  
+            "dashboard": {
+                "layout": {
+                    "widgets": [
+                        {
+                            "id": "widget_1",
+                            "type": "chart",
+                            "config": {
+                                "color": "blue",
+                                "size": "large"
+                            }
+                        },
+                        {
+                            "id": "widget_2",
+                            "type": "table",
+                            "config": {
+                                "columns": ["name", "age", "location"]
+                            }
+                        }
+                    ]
+                }
+            }
+        },
+        "address": {
+            "city": "Metropolis",  
+            "contacts": [
+                {
+                    "type": "home",
+                    "number": "555-9999"  
+                },
+                {
+                    "type": "work",  
+                    "number": "555-5678"
+                },
+                {
+                    "type": "mobile",  
+                    "number": "555-1111"
+                }
+            ]
+        },
+        "emergency_contacts": {  
+            "primary": {
+                "name": "Bob",
+                "relation": "brother",
+                "number": "555-2222"
+            },
+            "secondary": {
+                "name": "Charlie",
+                "relation": "friend",
+                "number": "555-3333"
+            }
+        }
+    },
+    "projects": [
+        {
+            "id": 1,
+            "name": "Project A Updated",  
+            "tasks": [
+                {
+                    "id": 101,
+                    "title": "Design the homepage",  
+                    "completed": true
+                },
+                {
+                    "id": 103,
+                    "title": "Implement backend",  
+                    "completed": false
+                }
+            ],
+            "metadata": {  
+                "budget": 5000,
+                "team": [
+                    {
+                        "name": "John Doe",
+                        "role": "developer"
+                    },
+                    {
+                        "name": "Jane Smith",
+                        "role": "designer"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 2,
+            "tasks": [  
+                {
+                    "id": 201,
+                    "title": "Create database schema",
+                    "completed": true  
+                }
+            ],
+            "metadata": {  
+                "budget": 2000,
+                "team": [
+                    {
+                        "name": "Alice Brown",
+                        "role": "data scientist"
+                    }
+                ]
+            }
+        },
+        {
+            "id": 3,  
+            "name": "Project C",
+            "tasks": [],
+            "metadata": {  
+                "budget": 1000,
+                "team": []
+            }
+        }
+    ],
+    "active": false,  
+    "balance": 3000.00
+}
+
