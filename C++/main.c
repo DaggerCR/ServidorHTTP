@@ -96,8 +96,9 @@
         for (int i = 0; i < THREAD_POOL_SIZE; ++i) {
             pthread_create(&thread_pool[i], NULL, thread_function, NULL);
         }
-
-        printf("Servidor escuchando en el puerto %d...", PORT);
+        printf("\n╔═════════════════════════════════════════╗");
+        printf("\n║ Servidor escuchando en el puerto %d...║", PORT);
+        printf("\n╚═════════════════════════════════════════╝");
 
         while (true) {
             new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen);
@@ -125,9 +126,10 @@
      * Método que encola las solicitudes de los clientes
      */
     void enqueue_request(int new_socket) {
-        printf("\n Añadiendo al pool de hilos la solicitud...");
+        printf("\nAñadiendo al pool de hilos el socket %d...",new_socket);
         pthread_mutex_lock(&queue_mutex);
 
+        printf("\nSocket añadido al hilo %d",request_count);
         request_queue[request_count].socket_fd = new_socket;
         request_count++;
 
@@ -144,6 +146,7 @@
         }
 
         int client_socket = request_queue[0].socket_fd;
+        printf("\nSocket del cliente: %d",client_socket);
 
         // Desplazar la cola hacia adelante
         for (int i = 0; i < request_count - 1; ++i) {
@@ -191,8 +194,6 @@
             perror("listen");
             exit(EXIT_FAILURE);
         }
-
-        printf("Servidor escuchando en el puerto %d...\n", PORT);
         return 0;
     }
 
@@ -231,7 +232,7 @@
                             handle_delete_request(new_socket, request);
                             printf("\nDELETE request manejada\n");
                         }
-        printf("\nSolicitud atendida    , cerrando socket...\n");
+        printf("\nSolicitud atendida, cerrando socket...\n");
         close(new_socket);
     }
 
