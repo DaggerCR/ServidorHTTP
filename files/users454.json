@@ -1,0 +1,4 @@
+{
+    "hola":false,
+    "hello": [1,2,"string",false, {"whatever": 0}]
+}

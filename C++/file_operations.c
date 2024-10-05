@@ -91,6 +91,12 @@ void apply_patch_array(cJSON *original_array, cJSON *patch_array) {
 }
 
 void apply_patch(cJSON *original, cJSON *patch) {
+
+    if (cJSON_IsArray(original) && cJSON_IsArray(patch)) {
+        apply_patch_array(original, patch);
+        return;
+    }
+
     cJSON *key = NULL;
     cJSON_ArrayForEach(key, patch) {
         cJSON *patch_value = cJSON_GetObjectItem(patch, key->string);
@@ -146,7 +152,7 @@ FILE * create_empty_file_copy(char * file_sufix, const char *original_file_filep
 }
 
 
-bool update_file_content(char * file_sufix, const char * original_file_filepath, char * updated_content){
+bool update_file_content(char * file_sufix, const char * original_file_filepath, const char * updated_content){
 
     char file_copy_filepath[1024];  
     if (file_sufix == NULL) {
@@ -180,7 +186,7 @@ bool update_file_content(char * file_sufix, const char * original_file_filepath,
     return true;
 }
 
-bool update_text_file(const char * original_file_filepath, char * updated_content){
+bool update_text_file(const char * original_file_filepath, const char * updated_content){
 
     if (original_file_filepath == NULL || updated_content == NULL || strcmp(original_file_filepath,"")==0) {
         perror("\nError: argumento nulo aportado en funcion updated_text_file");
@@ -194,7 +200,7 @@ bool update_text_file(const char * original_file_filepath, char * updated_conten
 }
 
 
-char *update_json(FILE *original_file, char *updated_content) {
+char *update_json(FILE *original_file, const char *updated_content) {
     char *original_content = read_file(original_file);
     printf("\nOriginal content: %s", original_content);
     cJSON *original_json = NULL;
@@ -245,12 +251,12 @@ char *update_json(FILE *original_file, char *updated_content) {
 }
 
 
-bool update_json_file(FILE *file_to_update, char * updated_content, const char * original_file_filepath){
+bool update_json_file(FILE *file_to_update, const char * updated_content, const char * original_file_filepath){
     if (original_file_filepath == NULL || updated_content == NULL || file_to_update==NULL || strcmp(original_file_filepath,"")==0)  {
         perror("\nError: argumento nulo aportado en funcion updated_text_file");
         return false;
     }
-    char *updated_json_string = update_json(file_to_update, updated_content);
+    const char *updated_json_string = update_json(file_to_update, updated_content);
     if (updated_json_string != NULL) {
         char * file_sufix = ".json";
         bool resolve = update_file_content(file_sufix, original_file_filepath, updated_json_string);

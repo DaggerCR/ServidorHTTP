@@ -29,22 +29,35 @@
 #define PORT 8081
 #define THREAD_POOL_SIZE 8
 
+#define NUM_FILE_MUTEXES 256 
+
 #define HTTP_OK "200 OK"
 #define HTTP_CREATED "201 Created"
 #define HTTP_NO_CONTENT "204 No Content"
-#define HTTP_NOT_FOUND "404 Not Found"
 #define HTTP_BAD_REQUEST "400 Bad Request"
+#define HTTP_NOT_FOUND "404 Not Found"
+#define HTTP_FORBIDDEN "403 Forbidden"
+#define HTTP_INTERNAL_SERVER_ERROR "500 Internal Server Error"
 
 #define CONTENT_TYPE_JSON "application/json"
 #define CONTENT_TYPE_TEXT "text/plain"
 
 #define RESPONSE_NOT_FOUND "Not Found"
 #define RESPONSE_ERROR "Error"
+#define RESPONSE_ACCESS_DENIED "Access Dennied"
 #define RESPONSE_BUFFER_SIZE 2048
 
     int  open_server(int * server_fd);
+    void accept_connections(int server_fd); 
     void *handle_client_request(int new_socket);
+
+    //funciones de ayuda para los request 
     char *get_file_path(char *pRequesr);
+    bool validate_file_existence(int new_socket, const char *file_path);
+    bool validate_request(int new_socket, const char *content_type, const char *file_path, const char *content);
+    bool validate_file_path(int new_socket, const char *file_path);
+    char *extract_request_body(char *pRequest);
+
 
     // funciones para el manejo de request
     void handle_get_request(int new_socket, char request[]);
@@ -57,7 +70,23 @@
     bool query_exists(char request[]);
     char *get_query(char request[]);
     char *trim_query(char *file_response, char *query);
+    char *find_key_in_text_file(char *file_response, char *query_key);
+    char *find_key_in_json(char *file_response, char *query_key, char *query_value);
+    char *extract_json_block(char *response);
+    char *create_copy_of_block(char *response, char *close);
+    bool is_key_in_block(char *block, char *query_key, char *query_value);
 
+
+    // Lista de rutas de directorios válidos
+    const char *server_end_points[] = {
+        "../files/",
+        "../public/"
+        // Añadir más directorios válidos según sea necesario
+    };
+    const int num_end_points = sizeof(server_end_points) / sizeof(server_end_points[0]);
+
+    //manejo de mutex
+    pthread_mutex_t file_mutexes[NUM_FILE_MUTEXES]; 
     // Manejo de hilos
     pthread_t thread_pool[THREAD_POOL_SIZE];  // Pool de hilos
     
@@ -84,12 +113,15 @@
     {
         
         int server_fd, new_socket;
-        struct sockaddr_in address;
-        socklen_t addrlen = sizeof(address);
 
         if (open_server(&server_fd) < 0) {
             fprintf(stderr, "Error al abrir el servidor");
             exit(EXIT_FAILURE);
+        }
+
+        //hashtable de mutex para archivos
+        for (int i = 0; i < NUM_FILE_MUTEXES; ++i) {
+            pthread_mutex_init(&file_mutexes[i], NULL);
         }
 
         // Pool de hilos
@@ -100,36 +132,49 @@
         printf("\n║ Servidor escuchando en el puerto %d...║", PORT);
         printf("\n╚═════════════════════════════════════════╝");
 
-        while (true) {
-            new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen);
-            if (new_socket < 0) {
-                perror("Error al abrir el socket");
-                exit(EXIT_FAILURE);
-            }
-            enqueue_request(new_socket);  // se pone la solicitud en la cola de hilos
+        accept_connections(server_fd);
+
+        // Limpieza
+        for (int i = 0; i < NUM_FILE_MUTEXES; ++i) {
+            pthread_mutex_destroy(&file_mutexes[i]);
+            printf("\nMutex destruido");
         }
-    
     }
 
-    // Función para los hilos del pool
-    void *thread_function(void *arg) {
-    while (true) {
-        int client_socket = dequeue_request();  // Obtener una solicitud de la cola
-        if (client_socket != -1) {
-            handle_client_request(client_socket);
+    unsigned int hash_function(const char *file_path) {
+        unsigned int hash = 0;
+        while (*file_path) {
+            hash = (hash * 31) + *file_path++;  // Use a simple hashing algorithm
         }
+        return hash % NUM_FILE_MUTEXES;  // Map the hash to one of the mutexes in the array
     }
-    return NULL;
-}
+
+    pthread_mutex_t* get_file_mutex(const char *file_path) {
+        unsigned int index = hash_function(file_path);
+        return &file_mutexes[index];
+    }
+
+
+    // Función para procesar los hilos del pool
+    void *thread_function(void *arg) {
+        while (true) {
+            int client_socket = dequeue_request();  // Obtener una solicitud de la cola
+            if (client_socket != -1) {
+                handle_client_request(client_socket);
+            }
+        }
+        return NULL;
+    }
 
     /**
      * Método que encola las solicitudes de los clientes
      */
     void enqueue_request(int new_socket) {
-        printf("\nAñadiendo al pool de hilos el socket %d...",new_socket);
+        
+        printf("\n\nAñadiendo a la cola del pool de hilos el socket %d...",new_socket);
         pthread_mutex_lock(&queue_mutex);
 
-        printf("\nSocket añadido al hilo %d",request_count);
+        printf("\nSocket %d añadido a la cola en la posición %d",new_socket,request_count);
         request_queue[request_count].socket_fd = new_socket;
         request_count++;
 
@@ -146,7 +191,7 @@
         }
 
         int client_socket = request_queue[0].socket_fd;
-        printf("\nSocket del cliente: %d",client_socket);
+        printf("\nAtendiendo la solicitud del socket: %d",client_socket);
 
         // Desplazar la cola hacia adelante
         for (int i = 0; i < request_count - 1; ++i) {
@@ -197,6 +242,22 @@
         return 0;
     }
 
+    // Nueva función que maneja la aceptación de conexiones
+    void accept_connections(int server_fd) {
+        int new_socket;
+        struct sockaddr_in address;
+        socklen_t addrlen = sizeof(address);
+
+        while (true) {
+            new_socket = accept(server_fd, (struct sockaddr *)&address, &addrlen);
+            if (new_socket < 0) {
+                perror("Error al abrir el socket");
+                exit(EXIT_FAILURE);
+            }
+            enqueue_request(new_socket);  // se pone la solicitud en la cola de hilos
+        }
+    }
+
     /**
      * Método principal para manejar las solicitudes del cliente
      * new_socket: socket donde se alojará la solicitud 
@@ -204,47 +265,78 @@
     void * handle_client_request(int new_socket) {
         char request[4000] = {0}; //Buffer del cliente, contiene la solicitud completa del cliente
         read(new_socket, request, sizeof(request)); // Leer la solicitud del cliente
-        printf("\r\nRequest recibida: \n \r\n%s \r\n\r\n", request);
-    
+        printf("\n\n╔═════════════════════════════════════════════════╗");
+        printf("\n    Datos del Request recibidos del socket %d: \n\n%s",new_socket, request);
+        printf("\n╚══════════════════════════════════════════════════╝");
+
         // Determinar si es una solicitud GET o POST u otro
         if (strncmp(request, "GET", 3) == 0) 
         {
             handle_get_request(new_socket, request);
-            printf("\nGET request manejada\n");
+            printf("\nGET request completado del socket: %d\n",new_socket);
         } 
         else 
             if (strncmp(request, "POST", 4) == 0) {
                 handle_post_request(new_socket, request);
-                printf("\nPOST request manejada\n");
+                printf("\nPOST request completado del socket: %d\n",new_socket);
             }
             else 
                 if (strncmp(request, "PUT", 3) == 0) {
                     handle_put_request(new_socket, request);
-                    printf("\nPUT request manejada\n");
+                    printf("\nPUT request completado del socket: %d\n",new_socket);;
                 }
                 else 
                     if (strncmp(request, "PATCH", 5) == 0) {
                         handle_update_request(new_socket, request);
-                        printf("\nUPDATE request manejada\n");
+                        printf("\nUPDATE request completado del socket: %d\n",new_socket);
                     }
                     else 
                         if (strncmp(request, "DELETE", 6) == 0) {
                             handle_delete_request(new_socket, request);
-                            printf("\nDELETE request manejada\n");
+                            printf("\nDELETE request completado del socket: %d\n",new_socket);
                         }
-        printf("\nSolicitud atendida, cerrando socket...\n");
+        printf("\nSolicitud atendida, cerrando socket %d...\n",new_socket);
         close(new_socket);
     }
 
     void send_response(int socket, const char* status_code, const char* content_type, const char* content) {
         char response_buffer[RESPONSE_BUFFER_SIZE];
-        snprintf(response_buffer, sizeof(response_buffer),"HTTP/1.1 %s \r\n "
-                "Content-Type: %s \r\n"
-                " Content-Length: %zu \r\n\r\n"
-                " %s",
-                status_code, content_type,strlen(content), content);
-        send(socket, response_buffer, strlen(response_buffer), 0);
-    }
+
+        // Validar si el status_code es uno de los definidos
+        if (strcmp(status_code, HTTP_OK) != 0 &&
+            strcmp(status_code, HTTP_CREATED) != 0 &&
+            strcmp(status_code, HTTP_NO_CONTENT) != 0 &&
+            strcmp(status_code, HTTP_NOT_FOUND) != 0 &&
+            strcmp(status_code, HTTP_BAD_REQUEST) != 0 &&
+            strcmp(status_code, HTTP_INTERNAL_SERVER_ERROR) != 0 &&
+            strcmp(status_code, HTTP_FORBIDDEN) != 0) 
+        {
+            // Si no es uno de los códigos definidos, establece el código por defecto
+            status_code = HTTP_INTERNAL_SERVER_ERROR;
+        }
+    
+
+        if (content == NULL || strlen(content) == 0) {
+            snprintf(response_buffer, sizeof(response_buffer),
+                     "HTTP/1.1 %s \r\n"
+                     "Content-Length: 0\r\n"
+                    "\r\n",
+                    status_code);
+        } else {
+            snprintf(response_buffer, sizeof(response_buffer),
+                     "HTTP/1.1 %s \r\n"
+                     "Content-Type: %s\r\n"
+                    "Content-Length: %zu\r\n\r\n"
+                    "%s",
+                    status_code, content_type, strlen(content), content);
+        }
+        // Enviar respuesta al cliente
+        ssize_t bytes_sent = send(socket, response_buffer, strlen(response_buffer), 0);
+        if (bytes_sent == -1) {
+            perror("Error al enviar respuesta");
+            close(socket);  // Cierra el socket antes de salir
+            exit(EXIT_FAILURE);  // Termina el servidor de forma segura
+        }}
 
     char * get_file_path(char request[]){
         char *file_path = strtok(request, " ");
@@ -253,21 +345,60 @@
         return ++file_path;
     } 
 
-    char * get_content_type(char *request){
-        if (request == NULL){
-            return NULL;
-        }
-	    request = strtok(NULL, "\r\n");
-	    request = strtok(NULL, "\r\n");
-	    request = strstr(request, ": ");
-	    request = request+2;
-        printf("\nSe recibio un ocntenido de tipo: %s", request);
-        if (!strcmp(request, CONTENT_TYPE_TEXT)){
-            return CONTENT_TYPE_TEXT;
-        } else if (!strcmp(request, CONTENT_TYPE_JSON)) {
-            return CONTENT_TYPE_JSON;
-        }
+char *get_content_type(char *request) {
+    if (request == NULL) {
+        return NULL;
     }
+
+    printf("\nRequest inside get content type is: %s", request);
+
+    // Copia el request para evitar modificar el original con strtok
+    char *request_copy = strdup(request);
+    if (request_copy == NULL) {
+        perror("Error al duplicar la solicitud");
+        return NULL;
+    }
+
+    char *line = strtok(request_copy, "\r\n");
+    while (line != NULL) {
+        printf("\n LIne! : %s", line); 
+        // Busca la línea que contiene "Content-Type:"
+        if (strstr(line, "Content-Type:") != NULL) {
+            // Encuentra el inicio del valor del tipo de contenido
+            char *content_type = strstr(line, ": ");
+            if (content_type != NULL) {
+                content_type += 2;  // Saltar el ": " para llegar al valor
+                
+                // Copiar el tipo de contenido a una nueva cadena
+                char *content_type_copy = strdup(content_type);
+                if (content_type_copy == NULL) {
+                    perror("Error al asignar memoria para el tipo de contenido");
+                    free(request_copy);
+                    return NULL;
+                }
+                
+                printf("\nSe recibió un contenido de tipo: %s", content_type_copy);
+
+                // Verifica si el tipo de contenido es JSON o texto
+                if (strcmp(content_type_copy, CONTENT_TYPE_TEXT) == 0 || strcmp(content_type_copy, CONTENT_TYPE_JSON) == 0) {
+                    free(request_copy);  // Liberar la copia de la solicitud
+                    return content_type_copy;  // Retornar el tipo de contenido
+                }
+
+                // Si no es JSON o texto, liberar la memoria y retornar NULL
+                free(content_type_copy);
+                break;
+            }
+        } else {
+        }
+        // Obtener la siguiente línea
+        line = strtok(NULL, "\r\n");
+    }
+    printf("\nfin del while");
+
+    free(request_copy);
+    return NULL;
+}
 
     bool validate_file_type(int new_socket, const char *content_type, const char *file_path) {
         bool is_valid = false;
@@ -293,6 +424,83 @@
         }
 
         return is_valid;
+    }
+
+
+    // Nueva función para validar si un archivo existe
+    bool validate_file_existence(int new_socket, const char *file_path) {
+        FILE *file = fopen(file_path, "r");
+        if (file == NULL) {
+            send_response(new_socket, HTTP_NOT_FOUND, CONTENT_TYPE_TEXT, RESPONSE_NOT_FOUND);
+            printf("\n Archivo no encontrado");
+            return false;
+        }
+        fclose(file);
+        return true;
+    }
+
+bool validate_file_path(int new_socket, const char *file_path) {
+    bool is_valid = false;
+
+    // Extraer la parte del directorio del file_path
+    char directory_path[1024];
+    strcpy(directory_path, file_path);
+
+    // Encontrar la última ocurrencia de '/' para aislar el directorio
+    char *last_slash = strrchr(directory_path, '/');
+    if (last_slash != NULL) {
+        *(last_slash + 1) = '\0';  // Terminar el string después del último '/'
+    } else {
+        // Si no hay '/', no es un camino válido
+        send_response(new_socket, HTTP_FORBIDDEN, CONTENT_TYPE_TEXT, RESPONSE_ACCESS_DENIED); 
+        printf("\n Acceso denegado para el archivo: %s", file_path);
+        return false;
+    }
+
+    // Comparar directory_path con los endpoints válidos
+    for (int i = 0; i < num_end_points; ++i) {
+        if (strstr(directory_path, server_end_points[i]) == directory_path) {
+            // Asegurar que no se acceda a un subdirectorio no permitido
+            if (strlen(directory_path) <= strlen(server_end_points[i])) {
+                is_valid = true;
+                break;
+            }
+        }
+    }
+
+    // Si el directorio no es válido, enviar un error de acceso denegado
+    if (!is_valid) {
+        const char *error_message = "Access Denied";
+        send_response(new_socket, "403 Forbidden", CONTENT_TYPE_TEXT, error_message);
+        printf("\n Acceso denegado para el directorio: %s", directory_path);
+    }
+
+    return is_valid;
+}
+
+    // Nueva función para validar la solicitud
+    bool validate_request(int new_socket, const char *content_type, const char *file_path, const char * content) {
+        if (content_type == NULL || file_path == NULL) {
+            send_response(new_socket, HTTP_BAD_REQUEST, content_type, RESPONSE_ERROR);
+            return false;
+        }
+        if (!validate_file_type(new_socket, content_type, file_path)) {
+            return false;
+        }
+
+        if (strcmp(content_type, CONTENT_TYPE_JSON) == 0 && (content  == NULL || strlen(content) == 0)) {
+            send_response(new_socket, HTTP_BAD_REQUEST, content_type, RESPONSE_ERROR);
+            return false;
+        }
+
+        return true;
+    }
+
+
+    // Nueva función para extraer el cuerpo de la solicitud
+    char *extract_request_body(char *pRequest) {
+        char *file_start = strstr(pRequest, "\r\n\r\n");
+        return file_start ? file_start + 4 : NULL;
     }
 
     // Funciones auxiliares para GET
@@ -323,310 +531,266 @@
     	return query+1; 
     }
     
-    char *trim_query(char *file_response, char *query){
-    	//busca el key del query
-    	char *query_key = strtok(query, "=");
-    	// busca el value del query
-    	// "&" si hay, " " si no hay
-    	char *query_value = strtok(NULL, "& ");
-    	char *json = strchr(file_response, '{');
-    	//busco si hay { para ver si es un json o txt
-    	if (json==NULL){
-    	    //es un text file
-    	    //devuelve la oracion donde esta el key
-    	    char *response = file_response;
-    	    size_t final_length = strlen(response);
-    	    //Tokenizo cada oracion
-    	    response = strtok(file_response, "\n");
-    	    //mientras no se acaben los tokens
-    	    while(response!=NULL){ 
-    	       //si la palabra se encuentra en la oracion
-    	       if(strstr(response, query_key)!=NULL){
-    	          return response;
-    	       }
-    	       //Key was not found, look in the next sentence
-    	       response = strtok(NULL, "\n");
-    	   }
-    	}
-    	else{
-    	   char *response = strstr(file_response, "{");
-    	   size_t final_length = strlen(response);
-    	   //while it is inside the boundaries of the file string
-    	   while(response<file_response+final_length){
-    	   	int braket_counter = 0;
-    	   	char *open = response;
-    	   	char *close = response;
-    	   	size_t length = strlen(response);
-    	   	//find the } that matches the first {
-    	   	for (int i = 0; i<length; i++){
-    	   	   if (response[i] == '{') braket_counter++;
-    	   	   if (response[i] == '}') {
-    	   	      braket_counter--;
-    	   	      close = response + i;
-    	   	   }
-    	   	   if (braket_counter == 0) break;
-    	   	   else close = response + i;
-    	   	}
-    	   	// a {} was found or the whole file will be taken into account
-    	   	if (response!=NULL && close !=NULL && close>response){
-    	   	   //copy instead of trim in case it is not the correct {}
-    	   	   size_t length = close - response +1;  
-		   char *respond_copy = strdup(response);
-		   strncpy(respond_copy, response, length);
-	           respond_copy[length] = '\0';  // Null-terminate the result string
-	           // searches key and value inside { }
-	           char *found_key = strstr(respond_copy, ("\"%s\"", query_key));
-	           if (found_key != NULL) {
-	              //key value was found
-	              if (query_value != NULL){
-	              	 //query value was assigned
-	              	 //have to check if it matches too
-	              	 char *found_value = strstr(respond_copy, query_value);
-	              	 if (found_value!=NULL){
-	              	    //value was found
-	              	    return respond_copy;
-	              	 }
-	              }
-	              else{
-	                 //query value was not assigned
-	                 return respond_copy;
-	              }
-	           }
-    	   	
-    	   	}
-    	   	// {} did not match, try in next { }
-    	   	response = close + 1;
-    	   }
-    	}
-    	//the query did not match the text
-    	return "{}";
+    
+    // Función principal refactorizada
+    char *trim_query(char *file_response, char *query) {
+        char *query_key = strtok(query, "=");
+        char *query_value = strtok(NULL, "& ");
+        char *json = strchr(file_response, '{');
+
+        if (json == NULL) {
+            // Archivo de texto
+            return find_key_in_text_file(file_response, query_key);
+        } else {
+            // Archivo JSON
+            return find_key_in_json(file_response, query_key, query_value);
+        }
     }
 
+    // Función para encontrar el key en un archivo de texto
+    char *find_key_in_text_file(char *file_response, char *query_key) {
+        char *response = strtok(file_response, "\n");
+        while (response != NULL) {
+            if (strstr(response, query_key) != NULL) {
+                return response;
+            }
+            response = strtok(NULL, "\n");
+        }
+        return "{}"; // No se encontró el key
+    }
 
-    // Manejo de GET request
+    // Función para encontrar el key en un archivo JSON
+    char *find_key_in_json(char *file_response, char *query_key, char *query_value) {
+        char *response = extract_json_block(file_response);
+        while (response != NULL) {
+            char *close = strchr(response, '}');
+            if (close != NULL) {
+                char *block_copy = create_copy_of_block(response, close);
+                if (is_key_in_block(block_copy, query_key, query_value)) {
+                    return block_copy;
+                }
+                free(block_copy);
+            }
+            response = close + 1;
+        }
+        return "{}"; // No se encontró el key
+    }   
+
+    // Extraer el bloque JSON completo
+    char *extract_json_block(char *response) {
+        return strstr(response, "{");
+    }
+
+    // Crear una copia del bloque JSON
+    char *create_copy_of_block(char *response, char *close) {
+        size_t length = close - response + 1;
+        char *block_copy = (char *)malloc(length + 1);
+        strncpy(block_copy, response, length);
+        block_copy[length] = '\0';  // Asegurar la terminación del string
+        return block_copy;
+    }
+
+    // Comprobar si el key y valor están en el bloque JSON
+    bool is_key_in_block(char *block, char *query_key, char *query_value) {
+        char key_search[256];
+        snprintf(key_search, sizeof(key_search), "\"%s\"", query_key);
+        char *found_key = strstr(block, key_search);
+    
+        if (found_key != NULL) {
+            if (query_value != NULL) {
+                return strstr(block, query_value) != NULL;
+            }
+            return true; // Solo se buscaba el key
+        }
+        return false; // No se encontró el key
+    }
+
+    // Refactorización de las funciones handle
     void handle_get_request(int new_socket, char request[]) {
         FILE *file;
         char file_response[1024] = {0};
         char *message_type = HTTP_OK;
-        
-        //Check if there are queries, prior to file managment
+
+        // Check if there are queries, prior to file management
         bool query_exist = query_exists(request);
-        char *query;
-        if (query_exist){
-           query = get_query(request);
-        }
-        
-        //Buscar archivo
-        const char *file_path =  get_file_path(request);
-        printf("\n Archivo a buscar: %s",file_path);
-        file = fopen(file_path, "r");
-        
-        //Si el archivo no existe
-        if (file == NULL) {
-            send_response(new_socket, HTTP_NOT_FOUND, CONTENT_TYPE_TEXT, RESPONSE_NOT_FOUND);  
-            printf("\n Archivo no encontrado");
+        char *query = query_exist ? get_query(request) : NULL;
+
+        // Buscar archivo
+        const char *file_path = get_file_path(request);
+        printf("\n\nEl socket %d está haciendo get del archivo: %s",new_socket,file_path);
+
+        pthread_mutex_t *file_mutex = get_file_mutex(file_path);
+        pthread_mutex_lock(file_mutex);
+
+        if (!validate_file_path(new_socket, file_path) || !validate_file_existence(new_socket, file_path)) {
+            pthread_mutex_unlock(file_mutex);
             return;
         }
-        
-        //Si el archivo si existe
-        //Check what type is the file 
-        char *content_type = CONTENT_TYPE_TEXT;
-        if(strstr(file_path, ".json") != NULL)
-        {
-           printf("\n Archivo encontrado"); 
-           content_type = CONTENT_TYPE_JSON;
-        }
-        
-        //Read whole file and store it in file_response
+
+        // Check file type
+        char *content_type = strstr(file_path, ".json") ? CONTENT_TYPE_JSON : CONTENT_TYPE_TEXT;
+
+        // Read whole file and store it in file_response
+        file = fopen(file_path, "r");
         fread(file_response, sizeof(char), sizeof(file_response), file);
         fclose(file);
-        
-        //If query, trim file_response and only return the query or {} if not found 
-        if (query_exist){
-           strcpy(file_response, trim_query(file_response, query));
+
+        pthread_mutex_unlock(file_mutex);
+
+        // If query, trim file_response and only return the query or {} if not found 
+        if (query_exist) {
+            strcpy(file_response, trim_query(file_response, query));
         }
-        
-        //if file is {}, then query was not found
-        if(!strcmp(file_response, "{}")) {
+
+        // If file is {}, then query was not found
+        if (!strcmp(file_response, "{}")) {
             message_type = HTTP_NOT_FOUND;
         }
 
-        //if file is {}, then query was not found
-        if(!strcmp(file_response, "")){
-            message_type =  HTTP_NO_CONTENT;
+        // If file is empty
+        if (!strcmp(file_response, "")) {
+            message_type = HTTP_NO_CONTENT;
         }
 
-        send_response(new_socket, HTTP_OK, content_type, file_response);   
+        send_response(new_socket, message_type, content_type, file_response);
     }
 
-    // Manejo de POST request
     void handle_post_request(int new_socket, char pRequest[]) {
-        char *file_start;
-        FILE *file;
-	    char file_response[1024] = {0};
-        // Encontrar el inicio del JSON en la solicitud POST (después del doble salto de línea)
-        file_start = strstr(pRequest, "\r\n\r\n");
-        file_start += 4;  // Saltar el doble salto de línea
-	    printf("Mensaje por escribir:\r\n%s\r\n", file_start);
-        
-        // Agarrar el path del archivo
-        const char *file_path =  get_file_path(pRequest);
-        const char * content_type = get_content_type(pRequest);
+        char file_response[1024] = {0};
 
-        if (!validate_file_type(new_socket, content_type, file_path)){
+        const char *content_type = get_content_type(pRequest);
+        const char *file_start = extract_request_body(pRequest);
+        const char *file_path = get_file_path(pRequest);
+
+
+        pthread_mutex_t *file_mutex = get_file_mutex(file_path);
+        pthread_mutex_lock(file_mutex);
+
+        // Validate request
+        if (!validate_file_path(new_socket, file_path) || !validate_request(new_socket, content_type, file_path, file_start) || !validate_file_existence(new_socket, file_path)) {
+            pthread_mutex_unlock(file_mutex);
             return;
         }
-        
-        if (strlen(file_start) ==  0 && !strcmp(content_type, CONTENT_TYPE_JSON))  {
-            send_response(new_socket, HTTP_BAD_REQUEST, content_type, RESPONSE_ERROR);  
-            return;
-        }
-        // Abrir el archivo response.JSON para escribir el nuevo contenido
-        file = fopen(file_path, "r"); //w para sobre escribir, a para agregar al final
+
+         // Write content to file
+        FILE *file = fopen(file_path, "w");
         if (file == NULL) {
-            send_response(new_socket, HTTP_BAD_REQUEST, content_type, RESPONSE_ERROR);  
+            pthread_mutex_unlock(file_mutex);  // Unlock mutex before returning
+            send_response(new_socket, HTTP_INTERNAL_SERVER_ERROR, content_type, RESPONSE_ERROR);
             return;
         }
-        fclose(file);
-        fopen(file_path, "w");
-        // Escribir el contenido del JSON en el archivo
+        
         fwrite(file_start, sizeof(char), strlen(file_start), file);
-		fclose(file);
+        fclose(file);
 
-        // Responder al cliente (POSTMAN)con un mensaje de éxito
+        // Respond with success message
         file = fopen(file_path, "r");
         fread(file_response, sizeof(char), sizeof(file_response), file);
         fclose(file);
-        send_response(new_socket, HTTP_OK, content_type, file_response);  
+        pthread_mutex_unlock(file_mutex);  // Unlock mutex before returning
+        send_response(new_socket, HTTP_OK, content_type, file_response);
     }
-    
-    // Manejo de PUT request
+
     void handle_put_request(int new_socket, char pRequest[]) {
-        char *file_start;
-        FILE *file;
-	char file_response[1024] = {0};
-	char confirmation_message[15];
-        // Agarrar el path del archivo
-	
-        // Encontrar el inicio del JSON en la solicitud POST (después del doble salto de línea)
-        file_start = strstr(pRequest, "\r\n\r\n");
-        file_start += 4;  // Saltar el doble salto de línea
-        printf("Mensaje por escribir:\r\n%s\r\n", file_start);
+        char file_response[1024] = {0};
 
+        const char *content_type = get_content_type(pRequest);
+        const char *file_start = extract_request_body(pRequest);
+        const char *file_path = get_file_path(pRequest);
 
-        const char *file_path =  get_file_path(pRequest);
-        const char * content_type = get_content_type(pRequest);
-
-        if (!validate_file_type(new_socket, content_type, file_path)){
+        pthread_mutex_t *file_mutex = get_file_mutex(file_path);
+        pthread_mutex_lock(file_mutex);
+        // Validate request
+        if (!validate_file_path(new_socket, file_path) || !validate_request(new_socket, content_type, file_path, file_start)) {
+            pthread_mutex_unlock(file_mutex);
             return;
         }
 
-        if (strlen(file_start) <=  0 && !strcmp(content_type, CONTENT_TYPE_JSON))  {
-            send_response(new_socket, HTTP_BAD_REQUEST, content_type, RESPONSE_ERROR);  
-            return;
-        }
-	    
-        //Ver si el archivo existe, de lo contrario se creara
-        file = fopen(file_path, "r"); 
-        if (file){
-           snprintf(confirmation_message, sizeof(confirmation_message), "200 OK");
-           fclose(file); //luego se abre en modo escritura
-        }
-        else {
-           file = fopen(file_path, "w"); 
-           snprintf(confirmation_message, sizeof(confirmation_message), "201 Created");
-           fclose(file); //luego se abre en modo escritura
-        }
-        
-        // Abrir el archivo response.JSON para escribir el nuevo contenido
-        file = fopen(file_path, "w"); //w para sobre escribir, a para agregar al final
+        // Open file for writing (create if it doesn't exist)
+        FILE *file = fopen(file_path, "w");
         if (file == NULL) {
-            perror("Error: no se pudo abrir el archivo JSON para escribir");
-            exit(EXIT_FAILURE);
+            pthread_mutex_unlock(file_mutex);
+            send_response(new_socket, HTTP_INTERNAL_SERVER_ERROR, content_type, RESPONSE_ERROR);
+            return;
         }
-    
-        // Escribir el contenido del JSON en el archivo
+
+        // Write content to file
         fwrite(file_start, sizeof(char), strlen(file_start), file);
-		fclose(file);
-	    
-        // Responder al cliente (POSTMAN)con un mensaje de éxito
+        fclose(file);
+
+        // Respond with success message
         file = fopen(file_path, "r");
         fread(file_response, sizeof(char), sizeof(file_response), file);
         fclose(file);
-        
-        send_response(new_socket, HTTP_OK, CONTENT_TYPE_TEXT, file_response);  
+        pthread_mutex_unlock(file_mutex);
+        send_response(new_socket, HTTP_OK, content_type, file_response);
     }
 
     void handle_update_request(int new_socket, char pRequest[]) {
-        char *file_start;
-        FILE *file;
-	    char file_response[1024] = {0};
-	
-        // Encontrar el inicio del contenido en la solicitud update (después del doble salto de línea)
-        file_start = strstr(pRequest, "\r\n\r\n");
-        file_start += 4;  // Saltar el doble salto de línea
-	    printf("Contenido de la actualizacion:\r\n%s\r\n", file_start);
-        const char *file_path =  get_file_path(pRequest);
-        const char * content_type = get_content_type(pRequest);
+        char file_response[1024] = {0};
 
-        printf("\nFilepath es: %s", file_path);
+        const char *content_type = get_content_type(pRequest);
+        const char *file_start = extract_request_body(pRequest);
+        const char *file_path = get_file_path(pRequest);
 
-        if (!validate_file_type(new_socket, content_type, file_path)){
+
+        pthread_mutex_t *file_mutex = get_file_mutex(file_path);
+        pthread_mutex_lock(file_mutex);
+
+        // Validate request
+        if (!validate_file_path(new_socket, file_path) || !validate_request(new_socket, content_type, file_path, file_start)) {
+            pthread_mutex_unlock(file_mutex);
             return;
         }
 
-        if (strlen(file_start) <=  0 && !strcmp(content_type, CONTENT_TYPE_JSON))  {
-            send_response(new_socket, HTTP_BAD_REQUEST, content_type, RESPONSE_ERROR);  
-            return;
-        }
-        file = fopen(file_path, "r"); 
-        if (file == NULL){
-            send_response(new_socket, HTTP_NOT_FOUND, content_type, RESPONSE_NOT_FOUND);  
+        // Validate file existence
+        if (!validate_file_existence(new_socket, file_path)) {
+            pthread_mutex_unlock(file_mutex);
             return;
         }
 
-        printf("\nContenido es: %s", pRequest);
-        bool resolve=false;
+        bool resolve = false;
 
-        if(strstr(file_path, ".json")){
-            file = fopen(file_path, "r"); 
+        // Handle JSON and text file updates
+        if (strstr(file_path, ".json")) {
+            FILE *file = fopen(file_path, "r");
             resolve = update_json_file(file, file_start, file_path);
             fclose(file);
-        } else if (strstr(file_path, ".txt")){
+        } else if (strstr(file_path, ".txt")) {
             resolve = update_text_file(file_path, file_start);
         }
 
-        if (!resolve){
-            send_response(new_socket, HTTP_BAD_REQUEST, content_type, RESPONSE_ERROR);  
+        // If update failed, send a bad request response
+        if (!resolve) {
+            pthread_mutex_unlock(file_mutex);
+            send_response(new_socket, HTTP_BAD_REQUEST, content_type, RESPONSE_ERROR);
             return;
         }
 
-        // Responder al cliente (POSTMAN)con un mensaje de éxito
-        file = fopen(file_path, "r");
+        // Respond with success message
+        FILE *file = fopen(file_path, "r");
         fread(file_response, sizeof(char), sizeof(file_response), file);
         fclose(file);
-
-        send_response(new_socket, HTTP_OK, CONTENT_TYPE_TEXT, file_response);  
+        pthread_mutex_unlock(file_mutex);
+        send_response(new_socket, HTTP_OK, content_type, file_response);
     }
 
 
-    // Manejo de DELETE request
     void handle_delete_request(int new_socket, char request[]) {
-        FILE *file;
-        char file_response[1024] = {0};
-        const char *file_path =  get_file_path(request);
-        const char * content_type = get_content_type(request);
-        if (!validate_file_type(new_socket, content_type, file_path)){
+        const char *file_path = get_file_path(request);
+        const char *content_type = get_content_type(request);
+
+        pthread_mutex_t *file_mutex = get_file_mutex(file_path);
+        pthread_mutex_lock(file_mutex);
+
+        if (!validate_file_path(new_socket, file_path) || !validate_file_existence(new_socket, file_path)) {
             return;
         }
-	
-        file = fopen(file_path, "r");
-        if (file == NULL) {
-            send_response(new_socket, HTTP_NOT_FOUND, CONTENT_TYPE_TEXT, RESPONSE_NOT_FOUND);  
-            return;
-        }
+
         remove(file_path);
-        fclose(file);
-        
-        send_response(new_socket, HTTP_NO_CONTENT, content_type, "");  
+        send_response(new_socket, HTTP_NO_CONTENT, content_type, NULL);
     }
+
+
+
+
